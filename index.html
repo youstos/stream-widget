@@ -232,17 +232,10 @@ function setCount(key, newVal) {
 
 async function fetchInstagram() {
   try {
-    const r = await fetch('https://api.socialcounts.org/instagram-live-follower-count/' + CONFIG.igUser);
+    const r = await fetch('https://livecounts.nl/api/tucktools/instagram/' + CONFIG.igUser);
     const d = await r.json();
-    if (d && typeof d.API_sub === 'number' && d.API_sub > 0) setCount('ig', d.API_sub);
-  } catch (e) {}
-}
-
-async function fetchKick() {
-  try {
-    const r = await fetch('https://kick.com/api/v2/channels/' + CONFIG.kkUser);
-    const d = await r.json();
-    if (d && typeof d.followers_count === 'number' && d.followers_count > 0) setCount('kk', d.followers_count);
+    const n = d && d.data && d.data[0] && d.data[0].follower_count;
+    if (typeof n === 'number' && n > 0) setCount('ig', n);
   } catch (e) {}
 }
 
@@ -252,8 +245,7 @@ setCount('x', CONFIG.xCount);
 setCount('kk', CONFIG.kkCount);
 
 fetchInstagram();
-fetchKick();
-setInterval(() => { fetchInstagram(); fetchKick(); }, CONFIG.pollSeconds * 1000);
+setInterval(fetchInstagram, CONFIG.pollSeconds * 1000);
 </script>
 </body>
 </html>
