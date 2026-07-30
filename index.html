@@ -220,7 +220,10 @@ document.getElementById('kk-user').textContent = '@' + CONFIG.kkUser;
 /* Full numbers with separators so every new follower is visible on stream */
 const fmt = n => n.toLocaleString('en-US');
 
+/* The final value is written first: OBS pauses requestAnimationFrame whenever the
+   source is hidden, and the number must still be correct when it comes back. */
 function animateCount(el, from, to) {
+  el.textContent = fmt(to);
   const dur = 600, start = performance.now();
   function step(t) {
     const p = Math.min((t - start) / dur, 1);
@@ -262,6 +265,8 @@ function setCount(key, newVal, opts) {
 const trend = {};
 
 function pushReal(key, value) {
+  value = Number(value);
+  if (!Number.isFinite(value) || value <= 0) return;
   const s = trend[key] || (trend[key] = { rate: 0 });
   const now = Date.now();
   if (s.real !== undefined && value !== s.real && s.realAt) {
