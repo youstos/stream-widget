@@ -370,6 +370,7 @@ async function fetchWorker() {
     if (d.instagram) { fromWorker.ig = true; pushReal('ig', d.instagram); }
     if (d.facebook)  { fromWorker.fb = true; pushReal('fb', d.facebook); }
     if (d.kick)      { fromWorker.kk = true; pushReal('kk', d.kick); }
+    if (d.instagram || d.facebook || d.kick) lastOk = Date.now();
   } catch (e) { /* fall back to the public sources this cycle */ }
 }
 
@@ -427,6 +428,33 @@ fetchWorker().then(() => { fetchInstagram(); fetchKick(); fetchFacebook(); });
 setInterval(() => { fetchWorker().then(fetchKick); }, CONFIG.poll * 1000);
 setInterval(fetchInstagram, CONFIG.poll * 4 * 1000);
 setInterval(fetchFacebook, Math.max(CONFIG.poll * 12, 60) * 1000);
+
+/* ---- Self-healing ---------------------------------------------------------
+   Browsers throttle timers hard in hidden tabs, and a long sleep or network
+   drop can leave the display far behind. Two guards so a refresh is never
+   needed by hand:
+   - back to visible: fetch immediately and snap every card straight to its
+     target instead of slowly walking off the backlog
+   - watchdog: nothing fresh from the worker for 2 minutes while visible means
+     something is genuinely wedged, so the page reloads itself */
+let lastOk = Date.now();
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  for (const key of Object.keys(state)) {
+    const s = state[key];
+    if (s.shown !== null && s.target !== null && s.shown < s.target) {
+      s.shown = s.target;
+      render(key);
+    }
+  }
+  lastOk = Date.now();              // give the fetches a fresh 2-minute window
+  fetchWorker().then(() => { fetchInstagram(); fetchKick(); });
+});
+
+setInterval(() => {
+  if (!document.hidden && CONFIG.proxy && Date.now() - lastOk > 120000) location.reload();
+}, 15000);
 </script>
 </body>
 </html>
