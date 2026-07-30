@@ -287,12 +287,13 @@ function pushReal(key, value) {
   setCount(key, value, { silent: value < shown, bump: true });
 }
 
-/* Platforms the worker serves are already real-time, so only the ones still on
-   slow public mirrors (e.g. Instagram) get the estimated tick between refreshes */
+/* Facebook and Kick come from the worker every poll, so they never need the
+   estimated tick. Instagram is throttled upstream (~30 s between real values)
+   whichever source served it, so it keeps ticking between refreshes. */
 setInterval(() => {
   if (!CONFIG.smooth) return;
   for (const key of Object.keys(trend)) {
-    if (fromWorker[key]) continue;
+    if (fromWorker[key] && key !== 'ig') continue;
     const s = trend[key];
     if (!s.rate || s.real === undefined) continue;
     setCount(key, s.real + Math.floor(s.rate * (Date.now() - s.realAt) / 1000));
