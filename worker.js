@@ -49,8 +49,8 @@ export default {
     const out = {};
 
     if (q.get("ig"))   jobs.push(throttled("ig:" + q.get("ig"), 15, () => instagram(q.get("ig"))).then(v => { if (v) out.instagram = v; }));
-    if (q.get("fb"))   jobs.push(throttled("fb:" + q.get("fb"), 60, () => facebook(q.get("fb"))).then(v => { if (v) out.facebook = v; }));
-    if (q.get("kick")) jobs.push(throttled("kk:" + q.get("kick"), 10, () => kick(q.get("kick"))).then(v => { if (v) out.kick = v; }));
+    if (q.get("fb"))   jobs.push(throttled("fb:" + q.get("fb"), 20, () => facebook(q.get("fb"))).then(v => { if (v) out.facebook = v; }));
+    if (q.get("kick")) jobs.push(throttled("kk:" + q.get("kick"), 5, () => kick(q.get("kick"))).then(v => { if (v) out.kick = v; }));
 
     await Promise.all(jobs.map(p => p.catch(() => {})));
     if (q.get("debug")) out._dbg = dbg;
