@@ -17,9 +17,12 @@ const HEADERS = {
   "content-type": "application/json"
 };
 
-/* Instagram rate-limits aggressively, so upstream fetches are throttled per
-   isolate: at most one every TTL seconds, the last good value fills the gaps.
-   (The Cache API is a no-op on workers.dev, hence plain memory.) */
+/* Instagram rate-limits aggressively, so a request is only sent upstream every
+   TTL seconds. Two layers, because neither is enough on its own:
+     - cf.cacheTtl on the outbound fetch, so every isolate in the colo shares
+       one upstream response (see cached() below)
+     - this per-isolate memory of the last good value, which answers when the
+       upstream call fails outright */
 const mem = {};
 const dbg = {};
 
@@ -33,13 +36,19 @@ async function throttled(key, ttl, fn) {
   return s.val || null;
 }
 
+/* Edge-cache the upstream response for ttl seconds. cacheEverything is required
+   because these APIs all answer with no-store. */
+function cached(url, headers, ttl) {
+  return fetch(url, { headers, cf: { cacheTtl: ttl, cacheEverything: true } });
+}
+
 export default {
   async fetch(request) {
     const q = new URL(request.url).searchParams;
     const jobs = [];
     const out = {};
 
-    if (q.get("ig"))   jobs.push(throttled("ig:" + q.get("ig"), 30, () => instagram(q.get("ig"))).then(v => { if (v) out.instagram = v; }));
+    if (q.get("ig"))   jobs.push(throttled("ig:" + q.get("ig"), 15, () => instagram(q.get("ig"))).then(v => { if (v) out.instagram = v; }));
     if (q.get("fb"))   jobs.push(throttled("fb:" + q.get("fb"), 60, () => facebook(q.get("fb"))).then(v => { if (v) out.facebook = v; }));
     if (q.get("kick")) jobs.push(throttled("kk:" + q.get("kick"), 10, () => kick(q.get("kick"))).then(v => { if (v) out.kick = v; }));
 
@@ -54,11 +63,12 @@ export default {
 const MOBILE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
 async function instagram(user) {
-  const r = await fetch(
+  const r = await cached(
     "https://i.instagram.com/api/v1/users/web_profile_info/?username=" + encodeURIComponent(user),
-    { headers: { "x-ig-app-id": "936619743392459", "user-agent": MOBILE_UA, "accept": "*/*" } }
+    { "x-ig-app-id": "936619743392459", "user-agent": MOBILE_UA, "accept": "*/*" },
+    15
   );
-  dbg.ig = { status: r.status, at: new Date().toISOString() };
+  dbg.ig = { status: r.status, cf: r.headers.get("cf-cache-status"), at: new Date().toISOString() };
   if (!r.ok) return null;
   const j = await r.json();
   return j && j.data && j.data.user ? j.data.user.edge_followed_by.count : null;

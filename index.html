@@ -226,55 +226,64 @@ document.getElementById('kk-user').textContent = '@' + CONFIG.kkUser;
 /* Full numbers with separators so every new follower is visible on stream */
 const fmt = n => n.toLocaleString('en-US');
 
-/* The final value is written first: OBS pauses requestAnimationFrame whenever the
-   source is hidden, and the number must still be correct when it comes back. */
-function animateCount(el, from, to) {
-  el.textContent = fmt(to);
-  const dur = 600, start = performance.now();
-  function step(t) {
-    const p = Math.min((t - start) / dur, 1);
-    const eased = 1 - Math.pow(1 - p, 3);
-    el.textContent = fmt(Math.round(from + (to - from) * eased));
-    if (p < 1) requestAnimationFrame(step);
-  }
-  requestAnimationFrame(step);
+/* ---- Display layer --------------------------------------------------------
+   Every card holds a target (the newest real number) and a shown value that
+   walks up to it. The target is always a number the account has actually
+   reached, so the display trails reality slightly and never runs past it —
+   that was what made the old estimate jump forward and then snap back.
+
+   Pace: one follower per PER_UNIT_MS, so the digits tick up steadily instead of
+   leaping the whole refresh in one frame. A big gap (a busy account gains
+   dozens between refreshes, or a card is correcting after a stall) speeds up
+   just enough to close within CATCHUP, so it can never fall permanently behind.
+
+   SLACK absorbs the noise in the sources: Instagram's own API answers 1005404,
+   then 1005403, then 1005406 seconds apart, because the reply comes from
+   whichever replica is nearest. A follower counter that ticks backwards on
+   stream looks broken, so a drop is only believed when it is bigger than the
+   wobble; anything smaller keeps the higher number. */
+const PER_UNIT_MS = 2000, CATCHUP = 13000, STEP_MS = 100, SLACK = 25;
+const state = {};
+
+function st(key) {
+  return state[key] || (state[key] = { shown: null, target: null, real: undefined, rate: 0 });
 }
 
-/* opts.silent skips the animation (used when a refresh corrects an over-estimate)
-   opts.bump flashes the whole card (real refreshes only, keeps the tick quiet) */
-function setCount(key, newVal, opts) {
-  opts = opts || {};
+function render(key) {
+  const s = st(key);
+  const v = Math.floor(s.shown);
   const el = document.getElementById(key + '-count');
-  const had = el.dataset.val !== undefined;
-  const old = had ? parseInt(el.dataset.val) : 0;
-  if (had && newVal === old) return;
-  el.dataset.val = newVal;
-  if (!had || opts.silent) { el.textContent = fmt(newVal); return; }
+  if (el.dataset.val === String(v)) return;
+  el.dataset.val = v;
+  el.textContent = fmt(v);
+}
 
-  animateCount(el, old, newVal);
-  const diff = newVal - old;
+/* Direct set, no walk — used for the manual placeholders */
+function setCount(key, value) {
+  const s = st(key);
+  s.shown = s.target = value;
+  render(key);
+}
+
+function flash(key, diff) {
   const plus = document.getElementById(key + '-plus');
   plus.textContent = (diff > 0 ? '+' : '') + fmt(diff);
   plus.className = 'plus ' + (diff > 0 ? 'up' : 'down');
   void plus.offsetWidth; plus.classList.add('show');
-  if (diff > 0 && opts.bump) {
+  if (diff > 0) {
     const card = document.getElementById('card-' + key);
     card.classList.remove('bump'); void card.offsetWidth; card.classList.add('bump');
   }
 }
 
-/* ---- Growth tracking ------------------------------------------------------
-   Some sources (Instagram, Facebook) only publish a fresh number every few
-   minutes. Between refreshes we advance the display by the growth rate we
-   measured from the last two real values, then snap back to truth on the next
-   refresh. Set smooth=0 to show only what the sources actually return. */
-const trend = {};
-
+/* A fresh real number from any source. The +N badge shows the true jump even
+   though the digits take a few seconds to get there. */
 function pushReal(key, value) {
   value = Number(value);
   if (!Number.isFinite(value) || value <= 0) return;
-  const s = trend[key] || (trend[key] = { rate: 0 });
+  const s = st(key);
   const now = Date.now();
+
   if (s.real !== undefined && value !== s.real && s.realAt) {
     const dt = (now - s.realAt) / 1000;
     const r = (value - s.real) / dt;
@@ -282,23 +291,39 @@ function pushReal(key, value) {
   }
   if (s.real === undefined || value !== s.real) { s.real = value; s.realAt = now; }
 
-  const el = document.getElementById(key + '-count');
-  const shown = el.dataset.val !== undefined ? parseInt(el.dataset.val) : -1;
-  setCount(key, value, { silent: value < shown, bump: true });
+  if (s.shown === null) { setCount(key, value); return; }   // first value: no animation
+  if (value < s.target - SLACK) {          // a real drop: correct without animating
+    s.shown = s.target = value;
+    render(key);
+    return;
+  }
+  if (value <= s.target) return;           // same number, or noise below the peak
+  const diff = value - s.target;
+  s.target = value;
+  flash(key, diff);
 }
 
-/* Facebook and Kick come from the worker every poll, so they never need the
-   estimated tick. Instagram is throttled upstream (~30 s between real values)
-   whichever source served it, so it keeps ticking between refreshes. */
+/* The walk, plus the growth estimate for sources that only publish every few
+   minutes (the public Instagram mirror). Worker-served platforms are exact, so
+   they are never estimated — guessing on top of them made the count run ahead
+   and then snap back. */
 setInterval(() => {
-  if (!CONFIG.smooth) return;
-  for (const key of Object.keys(trend)) {
-    if (fromWorker[key] && key !== 'ig') continue;
-    const s = trend[key];
-    if (!s.rate || s.real === undefined) continue;
-    setCount(key, s.real + Math.floor(s.rate * (Date.now() - s.realAt) / 1000));
+  const now = Date.now();
+  for (const key of Object.keys(state)) {
+    const s = state[key];
+    if (s.shown === null || s.target === null) continue;
+
+    if (CONFIG.smooth && !fromWorker[key] && s.rate && s.real !== undefined) {
+      const est = s.real + Math.floor(s.rate * (now - s.realAt) / 1000);
+      if (est > s.target) s.target = est;
+    }
+
+    if (s.shown >= s.target) continue;
+    const gap = s.target - s.shown;
+    s.shown = Math.min(s.target, s.shown + Math.max(STEP_MS / PER_UNIT_MS, gap * STEP_MS / CATCHUP));
+    render(key);
   }
-}, 1000);
+}, STEP_MS);
 
 /* ---- CORS proxies, tried in order until one returns a usable value ---- */
 const PROXIES = [
@@ -326,7 +351,10 @@ async function viaProxy(url, parse) {
 }
 
 /* ---- Own worker: one call, real numbers, no third-party caching ----
-   Whichever platforms it answers for stop using the public fallbacks below. */
+   The flag is sticky: once a platform has been answered for, its public
+   fallback stays off for good. Instagram sometimes rejects the worker's
+   upstream call, and the public mirror runs several hundred followers behind,
+   so letting it back in would drag the number down again. */
 const fromWorker = { ig: false, fb: false, kk: false };
 
 async function fetchWorker() {
@@ -339,9 +367,9 @@ async function fetchWorker() {
   u.searchParams.set('_', Date.now());
   try {
     const d = await (await fetch(u.toString())).json();
-    fromWorker.ig = !!d.instagram; if (d.instagram) pushReal('ig', d.instagram);
-    fromWorker.fb = !!d.facebook;  if (d.facebook)  pushReal('fb', d.facebook);
-    fromWorker.kk = !!d.kick;      if (d.kick)      pushReal('kk', d.kick);
+    if (d.instagram) { fromWorker.ig = true; pushReal('ig', d.instagram); }
+    if (d.facebook)  { fromWorker.fb = true; pushReal('fb', d.facebook); }
+    if (d.kick)      { fromWorker.kk = true; pushReal('kk', d.kick); }
   } catch (e) { /* fall back to the public sources this cycle */ }
 }
 
@@ -387,9 +415,10 @@ if (!CONFIG.kkUser) setCount('kk', CONFIG.kkCount);
 setCount('sc', CONFIG.scCount);
 setCount('x', CONFIG.xCount);
 
-/* Seed Instagram's rate so the counter ticks from the first second instead of
-   waiting for two refreshes; the measured rate replaces it as soon as we have one */
-if (CONFIG.igRate > 0) trend.ig = { rate: CONFIG.igRate / 86400 };
+/* Only needed when Instagram is coming from the slow public mirror: it seeds the
+   tick so the counter moves before two refreshes have landed. With a worker the
+   number is already exact, and seeding a guess made it overshoot and snap back. */
+if (!CONFIG.proxy && CONFIG.igRate > 0) st('ig').rate = CONFIG.igRate / 86400;
 
 /* The worker goes first so the fallbacks can see which platforms it already covered.
    The public sources run on slower timers: their data is cached upstream anyway and
