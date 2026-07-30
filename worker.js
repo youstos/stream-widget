@@ -55,9 +55,15 @@ async function sharedThrottled(env, key, ttl, fn) {
     try {
       const v = await fn();
       if (v) {
-        s.failN = 0; s.val = v; s.okAt = now;
+        /* Instagram's replicas disagree by hundreds during rough patches — a
+           200 can carry a count that is minutes old. A successful read below
+           our best-known value is only believed when the fall is big enough
+           to be a real unfollow event rather than replica lag. */
+        const cur = Math.max(s.val || 0, kv ? kv.val : 0);
+        s.failN = 0; s.okAt = now;
+        s.val = (v > cur || v < cur - 1000) ? v : cur;
         if (env && env.COUNTS && (!kv || now - kv.at > 120000)) {
-          kv = { val: v, at: now };
+          kv = { val: s.val, at: now };
           await env.COUNTS.put(key, JSON.stringify(kv));
         }
       } else s.failN = (s.failN || 0) + 1;
