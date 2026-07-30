@@ -63,11 +63,15 @@ export default {
 const MOBILE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
 async function instagram(user) {
-  const r = await cached(
-    "https://i.instagram.com/api/v1/users/web_profile_info/?username=" + encodeURIComponent(user),
-    { "x-ig-app-id": "936619743392459", "user-agent": MOBILE_UA, "accept": "*/*" },
-    15
-  );
+  const url = "https://i.instagram.com/api/v1/users/web_profile_info/?username=" + encodeURIComponent(user);
+  const headers = { "x-ig-app-id": "936619743392459", "user-agent": MOBILE_UA, "accept": "*/*" };
+
+  let r = await cached(url, headers, 30);
+  /* A failed reply gets cached like any other (cacheTtlByStatus is
+     Enterprise-only), which would otherwise blank the whole 30 s window.
+     Instagram's rejections are intermittent, so one uncached retry on a
+     variant URL usually lands. */
+  if (!r.ok) r = await fetch(url + "&cb=" + Date.now(), { headers });
   dbg.ig = { status: r.status, cf: r.headers.get("cf-cache-status"), at: new Date().toISOString() };
   if (!r.ok) return null;
   const j = await r.json();
