@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Social Widget</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: transparent; /* transparent for OBS */
+    font-family: "Segoe UI", "Arial", sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  .widget {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 18px;
+    padding: 18px 24px;
+    border-radius: 20px;
+    background: linear-gradient(160deg, #0d0f0d 0%, #101410 60%, #0b120b 100%);
+    border: 2px solid #53FC18;
+    box-shadow:
+      0 0 18px rgba(83, 252, 24, .45),
+      0 0 46px rgba(83, 252, 24, .18),
+      inset 0 0 24px rgba(83, 252, 24, .07);
+    animation: frameGlow 3s ease-in-out infinite;
+  }
+  @keyframes frameGlow {
+    0%, 100% { box-shadow: 0 0 18px rgba(83,252,24,.45), 0 0 46px rgba(83,252,24,.18), inset 0 0 24px rgba(83,252,24,.07); }
+    50%      { box-shadow: 0 0 26px rgba(83,252,24,.7),  0 0 60px rgba(83,252,24,.3),  inset 0 0 30px rgba(83,252,24,.12); }
+  }
+
+  .header {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px;
+    color: #53FC18; font-size: 15px; font-weight: 800;
+    text-shadow: 0 0 10px rgba(83,252,24,.6);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 0 8px;
+    border-right: 1px solid rgba(83,252,24,.25);
+    padding-right: 20px;
+    white-space: nowrap;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #53FC18; box-shadow: 0 0 8px #53FC18; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+  .card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 14px 22px 12px;
+    min-width: 170px;
+    border-radius: 16px;
+    background: rgba(255,255,255,.035);
+    border: 1px solid rgba(83,252,24,.22);
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at top, rgba(83,252,24,.08), transparent 65%);
+    pointer-events: none;
+  }
+
+  .icon {
+    width: 50px; height: 50px;
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .icon svg { width: 28px; height: 28px; fill: #fff; }
+
+  .ig .icon { background: linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888); box-shadow: 0 0 16px rgba(220,39,67,.55); }
+  .fb .icon { background: #1877F2; box-shadow: 0 0 16px rgba(24,119,242,.55); }
+  .sc .icon { background: #FFFC00; box-shadow: 0 0 16px rgba(255,252,0,.45); }
+  .sc .icon svg { fill: #000; }
+  .x .icon  { background: #000; border: 1px solid rgba(255,255,255,.35); box-shadow: 0 0 16px rgba(255,255,255,.3); }
+  .kk .icon { background: #53FC18; box-shadow: 0 0 16px rgba(83,252,24,.6); }
+  .kk .icon svg { fill: #000; }
+
+  .username { color: #fff; font-size: 14px; font-weight: 600; }
+  .label { color: rgba(255,255,255,.45); font-size: 11px; letter-spacing: .5px; text-transform: uppercase; white-space: nowrap; }
+
+  .count {
+    color: #53FC18;
+    font-size: 30px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    text-shadow: 0 0 14px rgba(83,252,24,.55);
+  }
+
+  .plus {
+    position: absolute;
+    top: 12px; right: 12px;
+    color: #53FC18;
+    font-size: 17px;
+    font-weight: 800;
+    opacity: 0;
+    pointer-events: none;
+    text-shadow: 0 0 10px rgba(83,252,24,.8);
+  }
+  .plus.show { animation: floatUp 1.2s ease-out forwards; }
+  @keyframes floatUp {
+    0%   { opacity: 0; transform: translateY(0); }
+    15%  { opacity: 1; }
+    100% { opacity: 0; transform: translateY(-26px); }
+  }
+
+  .card.bump { animation: bump .7s ease; }
+  @keyframes bump {
+    0% { background: rgba(83,252,24,.22); border-color: #53FC18; }
+    100% { background: rgba(255,255,255,.035); border-color: rgba(83,252,24,.22); }
+  }
+</style>
+</head>
+<body>
+
+<div class="widget">
+  <div class="header"><span class="dot"></span> Follow<br>Me</div>
+
+  <div class="card ig" id="card-ig">
+    <div class="icon">
+      <svg viewBox="0 0 24 24"><path d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.23-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.23-.41a3.7 3.7 0 0 1-1.38-.9 3.7 3.7 0 0 1-.9-1.38c-.16-.42-.36-1.06-.41-2.23C2.17 15.58 2.16 15.2 2.16 12s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41C8.42 2.17 8.8 2.16 12 2.16M12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.9.33 4.14.63a5.9 5.9 0 0 0-2.13 1.38A5.9 5.9 0 0 0 .63 4.14C.33 4.9.13 5.78.07 7.05.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.15.56 2.91.31.8.72 1.48 1.38 2.13a5.9 5.9 0 0 0 2.13 1.38c.76.3 1.64.5 2.91.56C8.33 23.99 8.74 24 12 24s3.67-.01 4.95-.07c1.27-.06 2.15-.26 2.91-.56a5.9 5.9 0 0 0 2.13-1.38 5.9 5.9 0 0 0 1.38-2.13c.3-.76.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.15-.56-2.91a5.9 5.9 0 0 0-1.38-2.13A5.9 5.9 0 0 0 19.86.63c-.76-.3-1.64-.5-2.91-.56C15.67.01 15.26 0 12 0zm0 5.84A6.16 6.16 0 1 0 18.16 12 6.16 6.16 0 0 0 12 5.84zm0 10.15A4 4 0 1 1 16 12a4 4 0 0 1-4 3.99zm7.85-10.4a1.44 1.44 0 1 1-1.44-1.44 1.44 1.44 0 0 1 1.44 1.44z"/></svg>
+    </div>
+    <span class="username" id="ig-user">@username</span>
+    <span class="label">Instagram Followers</span>
+    <span class="count" id="ig-count">&mdash;</span>
+    <span class="plus" id="ig-plus">+1</span>
+  </div>
+
+  <div class="card fb" id="card-fb">
+    <div class="icon">
+      <svg viewBox="0 0 24 24"><path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.09 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.7 4.53-4.7 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.96.93-1.96 1.89v2.26h3.33l-.53 3.49h-2.8V24C19.61 23.09 24 18.1 24 12.07z"/></svg>
+    </div>
+    <span class="username" id="fb-user">Page Name</span>
+    <span class="label">Facebook Followers</span>
+    <span class="count" id="fb-count">&mdash;</span>
+    <span class="plus" id="fb-plus">+1</span>
+  </div>
+
+  <div class="card sc" id="card-sc">
+    <div class="icon">
+      <svg viewBox="0 0 24 24"><path d="M12.03.01c1.87 0 4.1.5 5.47 2.3.9 1.19 1.09 2.66 1.09 4.19 0 .61-.03 1.24-.06 1.86.13.07.32.12.57.12.35-.02.75-.13 1.15-.32.17-.08.35-.11.5-.11.53 0 .96.35 1.03.79.06.44-.22.9-.86 1.16-.09.04-.2.08-.32.12-.6.2-1.5.51-1.74 1.09-.13.3-.08.68.15 1.13l.01.02c.08.15 1.9 3.66 5.94 4.32.32.05.55.33.53.65 0 .1-.03.19-.07.28-.3.7-1.56 1.21-3.87 1.57-.08.11-.15.44-.2.66-.05.21-.1.43-.17.66-.09.31-.32.47-.66.47h-.03c-.16 0-.38-.03-.66-.08-.46-.09-.98-.17-1.62-.17-.37 0-.76.03-1.15.1-.77.13-1.42.59-2.18 1.13-1.08.77-2.31 1.63-4.17 1.63-.08 0-.16 0-.23-.01h-.14c-1.86 0-3.08-.87-4.16-1.63-.76-.53-1.41-1-2.18-1.12a7.3 7.3 0 0 0-1.15-.1c-.68 0-1.22.11-1.62.18-.26.05-.49.09-.66.09-.44 0-.61-.27-.68-.49-.06-.23-.11-.45-.17-.66-.05-.21-.12-.55-.2-.66-2.31-.37-3.57-.87-3.87-1.58a.72.72 0 0 1-.07-.27c-.02-.33.21-.61.53-.66 4.04-.66 5.85-4.17 5.93-4.32l.02-.03c.23-.44.28-.82.15-1.12-.24-.58-1.14-.89-1.74-1.1-.11-.03-.22-.07-.31-.11-.86-.34-.98-.87-.92-1.15.08-.5.68-.84 1.19-.84.15 0 .28.03.4.08.44.21.83.32 1.17.32.28 0 .46-.07.57-.13l-.03-.94c-.06-1.83-.13-4.1 1.09-5.71C7.94.52 10.16.01 12.03.01z"/></svg>
+    </div>
+    <span class="username" id="sc-user">@username</span>
+    <span class="label">Add Me On Snapchat</span>
+    <span class="count" id="sc-count">&mdash;</span>
+    <span class="plus" id="sc-plus">+1</span>
+  </div>
+
+  <div class="card x" id="card-x">
+    <div class="icon">
+      <svg viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24h-6.657l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.451-6.231zm-1.161 17.52h1.833L7.084 4.126H5.117l11.966 15.644z"/></svg>
+    </div>
+    <span class="username" id="x-user">@username</span>
+    <span class="label">X Followers</span>
+    <span class="count" id="x-count">&mdash;</span>
+    <span class="plus" id="x-plus">+1</span>
+  </div>
+
+  <div class="card kk" id="card-kk">
+    <div class="icon">
+      <svg viewBox="0 0 24 24"><path d="M4 2h5v7h3V6h3V2h5v8h-3v4h3v8h-5v-4h-3v-3h-3v7H4z"/></svg>
+    </div>
+    <span class="username" id="kk-user">@username</span>
+    <span class="label">Kick Followers</span>
+    <span class="count" id="kk-count">&mdash;</span>
+    <span class="plus" id="kk-plus">+1</span>
+  </div>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const CONFIG = {
+  igUser: params.get('ig') || 'username',
+  fbName: params.get('fb') || 'Page Name',
+  fbCount: parseInt(params.get('fbc')) || 0,
+  scUser: params.get('sc') || 'username',
+  scCount: parseInt(params.get('scc')) || 0,
+  xUser: params.get('x') || 'username',
+  xCount: parseInt(params.get('xc')) || 0,
+  kkUser: params.get('kick') || 'username',
+  kkCount: parseInt(params.get('kc')) || 0,
+  pollSeconds: 30
+};
+
+document.getElementById('ig-user').textContent = '@' + CONFIG.igUser;
+document.getElementById('fb-user').textContent = CONFIG.fbName;
+document.getElementById('sc-user').textContent = '@' + CONFIG.scUser;
+document.getElementById('x-user').textContent = '@' + CONFIG.xUser;
+document.getElementById('kk-user').textContent = '@' + CONFIG.kkUser;
+
+function fmt(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1).replace('.0','') + 'M';
+  if (n >= 10000)   return (n / 1000).toFixed(1).replace('.0','') + 'K';
+  return n.toLocaleString('en-US');
+}
+
+function animateCount(el, from, to) {
+  const dur = 800, start = performance.now();
+  function step(t) {
+    const p = Math.min((t - start) / dur, 1);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = fmt(Math.round(from + (to - from) * eased));
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+function setCount(key, newVal) {
+  const el = document.getElementById(key + '-count');
+  const old = el.dataset.val ? parseInt(el.dataset.val) : 0;
+  if (newVal === old) return;
+  el.dataset.val = newVal;
+  animateCount(el, old, newVal);
+  if (newVal > old && old > 0) {
+    const card = document.getElementById('card-' + key);
+    const plus = document.getElementById(key + '-plus');
+    plus.textContent = '+' + (newVal - old);
+    plus.classList.remove('show'); void plus.offsetWidth; plus.classList.add('show');
+    card.classList.remove('bump'); void card.offsetWidth; card.classList.add('bump');
+  }
+}
+
+async function fetchInstagram() {
+  try {
+    const r = await fetch('https://api.socialcounts.org/instagram-live-follower-count/' + CONFIG.igUser);
+    const d = await r.json();
+    if (d && typeof d.API_sub === 'number' && d.API_sub > 0) setCount('ig', d.API_sub);
+  } catch (e) {}
+}
+
+async function fetchKick() {
+  try {
+    const r = await fetch('https://kick.com/api/v2/channels/' + CONFIG.kkUser);
+    const d = await r.json();
+    if (d && typeof d.followers_count === 'number' && d.followers_count > 0) setCount('kk', d.followers_count);
+  } catch (e) {}
+}
+
+setCount('fb', CONFIG.fbCount);
+setCount('sc', CONFIG.scCount);
+setCount('x', CONFIG.xCount);
+setCount('kk', CONFIG.kkCount);
+
+fetchInstagram();
+fetchKick();
+setInterval(() => { fetchInstagram(); fetchKick(); }, CONFIG.pollSeconds * 1000);
+</script>
+</body>
+</html>
