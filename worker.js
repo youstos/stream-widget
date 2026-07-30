@@ -17,12 +17,8 @@ const HEADERS = {
   "content-type": "application/json"
 };
 
-/* Instagram rate-limits aggressively, so a request is only sent upstream every
-   TTL seconds. Two layers, because neither is enough on its own:
-     - cf.cacheTtl on the outbound fetch, so every isolate in the colo shares
-       one upstream response (see cached() below)
-     - this per-isolate memory of the last good value, which answers when the
-       upstream call fails outright */
+/* Upstream calls are throttled to at most one every TTL seconds per isolate,
+   and the last good value answers in between. */
 const mem = {};
 const dbg = {};
 
@@ -36,19 +32,49 @@ async function throttled(key, ttl, fn) {
   return s.val || null;
 }
 
-/* Edge-cache the upstream response for ttl seconds. cacheEverything is required
-   because these APIs all answer with no-store. */
-function cached(url, headers, ttl) {
-  return fetch(url, { headers, cf: { cacheTtl: ttl, cacheEverything: true } });
+/* Same, but the last good value is also shared through KV, so a freshly
+   spawned isolate answers with the fleet's newest number instead of nothing.
+   Writes are throttled to one per 2 minutes to stay far inside the free
+   plan's 1000 writes/day; between writes each isolate's own memory is newer
+   anyway. Only Instagram needs this: it is the one source whose upstream
+   fails in waves, which is what made isolates drift apart. */
+async function sharedThrottled(env, key, ttl, fn) {
+  const s = mem[key] || (mem[key] = {});
+  const now = Date.now();
+
+  let kv = null;
+  if (env && env.COUNTS) {
+    try { kv = JSON.parse(await env.COUNTS.get(key)); } catch (e) {}
+  }
+
+  /* Backing off after failures matters here: Instagram's rejection waves are
+     fed by request volume, so hammering through one only prolongs it. */
+  const wait = Math.min(ttl * Math.pow(2, s.failN || 0), 180) * 1000;
+  if (!s.at || now - s.at > wait) {
+    s.at = now;
+    try {
+      const v = await fn();
+      if (v) {
+        s.failN = 0; s.val = v; s.okAt = now;
+        if (env && env.COUNTS && (!kv || now - kv.at > 120000)) {
+          kv = { val: v, at: now };
+          await env.COUNTS.put(key, JSON.stringify(kv));
+        }
+      } else s.failN = (s.failN || 0) + 1;
+    } catch (e) { s.failN = (s.failN || 0) + 1; }
+  }
+
+  if (kv && (!s.okAt || kv.at > s.okAt) && kv.val > (s.val || 0)) return kv.val;
+  return s.val || (kv && kv.val) || null;
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const q = new URL(request.url).searchParams;
     const jobs = [];
     const out = {};
 
-    if (q.get("ig"))   jobs.push(throttled("ig:" + q.get("ig"), 15, () => instagram(q.get("ig"))).then(v => { if (v) out.instagram = v; }));
+    if (q.get("ig"))   jobs.push(sharedThrottled(env, "ig:" + q.get("ig"), 15, () => instagram(q.get("ig"))).then(v => { if (v) out.instagram = v; }));
     if (q.get("fb"))   jobs.push(throttled("fb:" + q.get("fb"), 20, () => facebook(q.get("fb"))).then(v => { if (v) out.facebook = v; }));
     if (q.get("kick")) jobs.push(throttled("kk:" + q.get("kick"), 5, () => kick(q.get("kick"))).then(v => { if (v) out.kick = v; }));
 
@@ -62,17 +88,17 @@ export default {
    401s ("wait a few minutes") — but only with a MOBILE Safari UA */
 const MOBILE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
+/* One clean attempt per throttle window. The cf edge-cache layer that used to
+   sit here was dropped along with the uncached retry: failed replies get
+   cached like successes (cacheTtlByStatus is Enterprise-only), so the cache
+   mostly served poisoned 401s while the retry doubled the request volume —
+   KV is now the sharing layer instead. */
 async function instagram(user) {
-  const url = "https://i.instagram.com/api/v1/users/web_profile_info/?username=" + encodeURIComponent(user);
-  const headers = { "x-ig-app-id": "936619743392459", "user-agent": MOBILE_UA, "accept": "*/*" };
-
-  let r = await cached(url, headers, 30);
-  /* A failed reply gets cached like any other (cacheTtlByStatus is
-     Enterprise-only), which would otherwise blank the whole 30 s window.
-     Instagram's rejections are intermittent, so one uncached retry on a
-     variant URL usually lands. */
-  if (!r.ok) r = await fetch(url + "&cb=" + Date.now(), { headers });
-  dbg.ig = { status: r.status, cf: r.headers.get("cf-cache-status"), at: new Date().toISOString() };
+  const r = await fetch(
+    "https://i.instagram.com/api/v1/users/web_profile_info/?username=" + encodeURIComponent(user),
+    { headers: { "x-ig-app-id": "936619743392459", "user-agent": MOBILE_UA, "accept": "*/*" } }
+  );
+  dbg.ig = { status: r.status, at: new Date().toISOString() };
   if (!r.ok) return null;
   const j = await r.json();
   return j && j.data && j.data.user ? j.data.user.edge_followed_by.count : null;

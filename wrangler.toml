@@ -1,0 +1,7 @@
+name = "social-counts"
+main = "worker.js"
+compatibility_date = "2026-07-30"
+
+[[kv_namespaces]]
+binding = "COUNTS"
+id = "bb3242b9ee7a454abe5440d6d988e318"
