@@ -197,7 +197,7 @@ const g = (k, d) => params.get(k) !== null ? params.get(k) : d;
 
 /* A worker URL turns every platform into a true real-time read, so the growth
    estimate is off by default whenever one is configured (see worker.js) */
-const PROXY = g('proxy', '');
+const PROXY = g('proxy', 'https://social-counts.youstos.workers.dev');
 
 const CONFIG = {
   proxy: PROXY,
