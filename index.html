@@ -187,14 +187,20 @@
    fb / fbid   Facebook name shown on screen / page id used for the lookup
    kick        Kick channel slug
    sc + scc    Snapchat handle + manual count      x + xc   X handle + manual count
-   poll        seconds between Kick refreshes (default 5)
+   proxy       URL of your own worker (see worker.js) — makes every count exact
+   poll        seconds between refreshes (default 5)
    smooth      1 = tick between refreshes using the measured growth rate, 0 = raw values only
    igrate      starting guess for Instagram growth in followers/day, replaced once measured
 =================================================================================== */
 const params = new URLSearchParams(location.search);
 const g = (k, d) => params.get(k) !== null ? params.get(k) : d;
 
+/* A worker URL turns every platform into a true real-time read, so the growth
+   estimate is off by default whenever one is configured (see worker.js) */
+const PROXY = g('proxy', '');
+
 const CONFIG = {
+  proxy: PROXY,
   igUser: g('ig', 'robomeij'),
   igId:   g('igid', '2081049995'),
   igRate: parseFloat(g('igrate', '48000')) || 0,
@@ -208,7 +214,7 @@ const CONFIG = {
   kkUser: g('kick', 'robomeij'),
   kkCount: parseInt(g('kc', '0')) || 0,
   poll: Math.max(parseInt(g('poll', '5')) || 5, 3),
-  smooth: g('smooth', '1') !== '0'
+  smooth: g('smooth', PROXY ? '0' : '1') !== '0'
 };
 
 document.getElementById('ig-user').textContent = '@' + CONFIG.igUser;
@@ -315,9 +321,30 @@ async function viaProxy(url, parse) {
   return null;
 }
 
+/* ---- Own worker: one call, real numbers, no third-party caching ----
+   Whichever platforms it answers for stop using the public fallbacks below. */
+const fromWorker = { ig: false, fb: false, kk: false };
+
+async function fetchWorker() {
+  if (!CONFIG.proxy) return;
+  let u;
+  try { u = new URL(CONFIG.proxy); } catch (e) { return; }
+  if (CONFIG.igUser) u.searchParams.set('ig', CONFIG.igUser);
+  if (CONFIG.fbId) u.searchParams.set('fb', CONFIG.fbId);
+  if (CONFIG.kkUser) u.searchParams.set('kick', CONFIG.kkUser);
+  u.searchParams.set('_', Date.now());
+  try {
+    const d = await (await fetch(u.toString())).json();
+    fromWorker.ig = !!d.instagram; if (d.instagram) pushReal('ig', d.instagram);
+    fromWorker.fb = !!d.facebook;  if (d.facebook)  pushReal('fb', d.facebook);
+    fromWorker.kk = !!d.kick;      if (d.kick)      pushReal('kk', d.kick);
+  } catch (e) { /* fall back to the public sources this cycle */ }
+}
+
 /* ---- Instagram: tucktools mirror, open CORS, keyed by numeric id ----
    This mirror only revalidates every ~30 min, hence the smoothing above. */
 async function fetchInstagram() {
+  if (fromWorker.ig) return;
   const key = CONFIG.igId || CONFIG.igUser;
   if (!key) return;
   try {
@@ -330,7 +357,7 @@ async function fetchInstagram() {
 
 /* ---- Facebook: the public Page Plugin renders the follower total ---- */
 async function fetchFacebook() {
-  if (!CONFIG.fbId) return;
+  if (fromWorker.fb || !CONFIG.fbId) return;
   const target = 'https://www.facebook.com/plugins/page.php?href=' +
     encodeURIComponent('https://www.facebook.com/profile.php?id=' + CONFIG.fbId) +
     '&tabs&width=340&height=130&small_header=false&adapt_container_width=true&hide_cover=false&show_facepile=true';
@@ -343,7 +370,7 @@ async function fetchFacebook() {
 
 /* ---- Kick: official channel endpoint, genuinely real time ---- */
 async function fetchKick() {
-  if (!CONFIG.kkUser) return;
+  if (fromWorker.kk || !CONFIG.kkUser) return;
   const n = await viaProxy('https://kick.com/api/v2/channels/' + CONFIG.kkUser, t => {
     try { return JSON.parse(t).followers_count || null; } catch (e) { return null; }
   });
@@ -360,10 +387,11 @@ setCount('x', CONFIG.xCount);
    waiting for two refreshes; the measured rate replaces it as soon as we have one */
 if (CONFIG.igRate > 0) trend.ig = { rate: CONFIG.igRate / 86400 };
 
-fetchInstagram();
-fetchFacebook();
-fetchKick();
-setInterval(fetchKick, CONFIG.poll * 1000);
+/* The worker goes first so the fallbacks can see which platforms it already covered.
+   The public sources run on slower timers: their data is cached upstream anyway and
+   the Facebook one costs a 50 KB page fetch. */
+fetchWorker().then(() => { fetchInstagram(); fetchKick(); fetchFacebook(); });
+setInterval(() => { fetchWorker().then(fetchKick); }, CONFIG.poll * 1000);
 setInterval(fetchInstagram, CONFIG.poll * 4 * 1000);
 setInterval(fetchFacebook, Math.max(CONFIG.poll * 12, 60) * 1000);
 </script>
