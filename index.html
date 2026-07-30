@@ -15,6 +15,7 @@
     overflow: hidden;
   }
 
+  /* ====== Kick-style frame: black x green + glow — WIDE bar ====== */
   .widget {
     display: flex;
     flex-direction: row;
@@ -50,13 +51,14 @@
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #53FC18; box-shadow: 0 0 8px #53FC18; animation: pulse 1.5s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
 
+  /* ====== Platform card (icon -> name -> count below) ====== */
   .card {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 6px;
-    padding: 14px 22px 12px;
-    min-width: 170px;
+    padding: 14px 20px 12px;
+    min-width: 190px;
     border-radius: 16px;
     background: rgba(255,255,255,.035);
     border: 1px solid rgba(83,252,24,.22);
@@ -90,31 +92,33 @@
 
   .count {
     color: #53FC18;
-    font-size: 30px;
+    font-size: 27px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
-    line-height: 1.1;
+    line-height: 1.15;
+    white-space: nowrap;
     text-shadow: 0 0 14px rgba(83,252,24,.55);
   }
 
+  /* +1 animation when the count goes up */
   .plus {
     position: absolute;
     top: 12px; right: 12px;
-    color: #53FC18;
     font-size: 17px;
     font-weight: 800;
     opacity: 0;
     pointer-events: none;
-    text-shadow: 0 0 10px rgba(83,252,24,.8);
   }
-  .plus.show { animation: floatUp 1.2s ease-out forwards; }
+  .plus.up   { color: #53FC18; text-shadow: 0 0 10px rgba(83,252,24,.8); }
+  .plus.down { color: #ff4d4d; text-shadow: 0 0 10px rgba(255,77,77,.8); }
+  .plus.show { animation: floatUp 1.4s ease-out forwards; }
   @keyframes floatUp {
     0%   { opacity: 0; transform: translateY(0); }
     15%  { opacity: 1; }
     100% { opacity: 0; transform: translateY(-26px); }
   }
 
-  .card.bump { animation: bump .7s ease; }
+  .card.bump { animation: bump .8s ease; }
   @keyframes bump {
     0% { background: rgba(83,252,24,.22); border-color: #53FC18; }
     100% { background: rgba(255,255,255,.035); border-color: rgba(83,252,24,.22); }
@@ -178,18 +182,29 @@
 </div>
 
 <script>
+/* ================== CONFIG — override any of these via URL params ==================
+   ig    = Instagram @handle shown on screen        igid = Instagram numeric user id (LIVE)
+   fb    = Facebook name shown on screen            fbid = Facebook page/profile id (LIVE)
+   kick  = Kick channel slug (LIVE)
+   sc/scc = Snapchat handle + manual count          x/xc = X handle + manual count
+   fbc/kc = manual fallbacks used only if the live id is blank
+=================================================================================== */
 const params = new URLSearchParams(location.search);
+const g = (k, d) => params.get(k) !== null ? params.get(k) : d;
+
 const CONFIG = {
-  igUser: params.get('ig') || 'username',
-  fbName: params.get('fb') || 'Page Name',
-  fbCount: parseInt(params.get('fbc')) || 0,
-  scUser: params.get('sc') || 'username',
-  scCount: parseInt(params.get('scc')) || 0,
-  xUser: params.get('x') || 'username',
-  xCount: parseInt(params.get('xc')) || 0,
-  kkUser: params.get('kick') || 'username',
-  kkCount: parseInt(params.get('kc')) || 0,
-  pollSeconds: 30
+  igUser: g('ig', 'robomeij'),
+  igId:   g('igid', '2081049995'),
+  fbName: g('fb', 'Robomeij'),
+  fbId:   g('fbid', '61563196905451'),
+  fbCount: parseInt(g('fbc', '0')) || 0,
+  scUser: g('sc', 'username'),
+  scCount: parseInt(g('scc', '0')) || 0,
+  xUser: g('x', 'username'),
+  xCount: parseInt(g('xc', '0')) || 0,
+  kkUser: g('kick', 'robomeij'),
+  kkCount: parseInt(g('kc', '0')) || 0,
+  pollSeconds: parseInt(g('poll', '30')) || 30
 };
 
 document.getElementById('ig-user').textContent = '@' + CONFIG.igUser;
@@ -198,14 +213,11 @@ document.getElementById('sc-user').textContent = '@' + CONFIG.scUser;
 document.getElementById('x-user').textContent = '@' + CONFIG.xUser;
 document.getElementById('kk-user').textContent = '@' + CONFIG.kkUser;
 
-function fmt(n) {
-  if (n >= 1000000) return (n / 1000000).toFixed(1).replace('.0','') + 'M';
-  if (n >= 10000)   return (n / 1000).toFixed(1).replace('.0','') + 'K';
-  return n.toLocaleString('en-US');
-}
+/* Full numbers with separators so every new follower is visible on stream */
+const fmt = n => n.toLocaleString('en-US');
 
 function animateCount(el, from, to) {
-  const dur = 800, start = performance.now();
+  const dur = 700, start = performance.now();
   function step(t) {
     const p = Math.min((t - start) / dur, 1);
     const eased = 1 - Math.pow(1 - p, 3);
@@ -217,35 +229,88 @@ function animateCount(el, from, to) {
 
 function setCount(key, newVal) {
   const el = document.getElementById(key + '-count');
-  const old = el.dataset.val ? parseInt(el.dataset.val) : 0;
-  if (newVal === old) return;
+  const had = el.dataset.val !== undefined;
+  const old = had ? parseInt(el.dataset.val) : 0;
+  if (had && newVal === old) return;
   el.dataset.val = newVal;
+  if (!had) { el.textContent = fmt(newVal); return; }   // first value lands silently
+
   animateCount(el, old, newVal);
-  if (newVal > old && old > 0) {
-    const card = document.getElementById('card-' + key);
-    const plus = document.getElementById(key + '-plus');
-    plus.textContent = '+' + (newVal - old);
-    plus.classList.remove('show'); void plus.offsetWidth; plus.classList.add('show');
-    card.classList.remove('bump'); void card.offsetWidth; card.classList.add('bump');
-  }
+  const diff = newVal - old;
+  const card = document.getElementById('card-' + key);
+  const plus = document.getElementById(key + '-plus');
+  plus.textContent = (diff > 0 ? '+' : '') + fmt(diff);
+  plus.className = 'plus ' + (diff > 0 ? 'up' : 'down');
+  void plus.offsetWidth; plus.classList.add('show');
+  if (diff > 0) { card.classList.remove('bump'); void card.offsetWidth; card.classList.add('bump'); }
 }
 
+/* ---- CORS proxies, tried in order until one returns a usable value ---- */
+const PROXIES = [
+  u => 'https://corsproxy.io/?url=' + encodeURIComponent(u),
+  u => 'https://proxy.cors.sh/' + u,
+  u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u)
+];
+
+async function viaProxy(url, parse) {
+  for (const make of PROXIES) {
+    const ctl = new AbortController();
+    const tid = setTimeout(() => ctl.abort(), 12000);
+    try {
+      const r = await fetch(make(url), { signal: ctl.signal });
+      if (r.ok) {
+        const v = parse(await r.text());
+        if (v) return v;
+      }
+    } catch (e) { /* try the next proxy */ }
+    finally { clearTimeout(tid); }
+  }
+  return null;
+}
+
+/* ---- Instagram: tucktools mirror, open CORS, keyed by numeric id ---- */
 async function fetchInstagram() {
+  const key = CONFIG.igId || CONFIG.igUser;
+  if (!key) return;
   try {
-    const r = await fetch('https://livecounts.nl/api/tucktools/instagram/' + CONFIG.igUser);
+    const r = await fetch('https://livecounts.nl/api/tucktools/instagram/' + key);
     const d = await r.json();
     const n = d && d.data && d.data[0] && d.data[0].follower_count;
     if (typeof n === 'number' && n > 0) setCount('ig', n);
-  } catch (e) {}
+  } catch (e) { /* retry next cycle */ }
 }
 
-setCount('fb', CONFIG.fbCount);
+/* ---- Facebook: the public Page Plugin renders the follower total ---- */
+async function fetchFacebook() {
+  if (!CONFIG.fbId) return;
+  const target = 'https://www.facebook.com/plugins/page.php?href=' +
+    encodeURIComponent('https://www.facebook.com/profile.php?id=' + CONFIG.fbId) +
+    '&tabs&width=340&height=130&small_header=false&adapt_container_width=true&hide_cover=false&show_facepile=true';
+  const n = await viaProxy(target, t => {
+    const m = t.match(/([\d][\d,]{2,})\s*(?:followers|people follow)/i);
+    return m ? parseInt(m[1].replace(/,/g, '')) : null;
+  });
+  if (n) setCount('fb', n);
+}
+
+/* ---- Kick: official channel endpoint, needs a proxy for CORS ---- */
+async function fetchKick() {
+  if (!CONFIG.kkUser) return;
+  const n = await viaProxy('https://kick.com/api/v2/channels/' + CONFIG.kkUser, t => {
+    try { return JSON.parse(t).followers_count || null; } catch (e) { return null; }
+  });
+  if (n) setCount('kk', n);
+}
+
+/* Manual placeholders — live fetches overwrite these when they land */
+if (!CONFIG.fbId) setCount('fb', CONFIG.fbCount);
+if (!CONFIG.kkUser) setCount('kk', CONFIG.kkCount);
 setCount('sc', CONFIG.scCount);
 setCount('x', CONFIG.xCount);
-setCount('kk', CONFIG.kkCount);
 
-fetchInstagram();
-setInterval(fetchInstagram, CONFIG.pollSeconds * 1000);
+function refresh() { fetchInstagram(); fetchFacebook(); fetchKick(); }
+refresh();
+setInterval(refresh, CONFIG.pollSeconds * 1000);
 </script>
 </body>
 </html>
